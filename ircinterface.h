@@ -3,8 +3,10 @@ FILE: rcinterface.h
 DESCRIPTION: RailClone interface for external renderers
 CREATED BY: CQG
 HISTORY:	03/09/2013 - First Version
+					03/01/2017 - Added IRCSetEngineFeatures, TRCInstance improved to V300
+					31/05/2017 - Fixed compatibility issues with RailClone 2 (see changes on step 5).
 
-	Copyright (c) 2013, iToo Software. All Rights Reserved.
+	Copyright (c) iToo Software. All Rights Reserved.
 
 ************************************************************************
 
@@ -15,6 +17,13 @@ The following interface can be used by third party render engines to instantiate
 	
 		IRCStaticInterface *isrc = GetRCStaticInterface();
 		isrc->IRCRegisterEngine();
+		TRCEngineFeatures features;
+		if(isrc->functions.Count() > 2)		// safety check to avoid crash if RailClone plugin is not V3
+			isrc->IRCSetEngineFeatures(&features);
+
+		After calling this, "features.rcAPIversion" returns the RailClone API version, as defined in TRAILCLONE_API_VERSION (see definition in code below).
+		You can use it to know what RailClone version is installed, and what features are supported. 
+		In RailClone 2.x and before, rcAPIversion will be initialized to zero (since IRCRegisterEngine was not defined).
 
 At the rendering loop, repeat for each RailClone object:
 
@@ -51,19 +60,29 @@ At the rendering loop, repeat for each RailClone object:
 5) Generate the array of instances (instances of the meshes generated in step 5), and get a pointer to it:
 
 	int numInstances;
-	TRCInstance *inst = (TRCInstance *) itrees->IRCGetInstances(numInstances);
+	// this requires both the IRCInterface and the "features" variable, initialized in step 1
+	TRCInstance *inst = RCGetInstances(irc, features, numInstances);
 	if (inst && numInstances)
 		{
-		for (int i = 0; i < numInstances; i++, inst++)
+		for (int i = 0; i < numInstances; i++)
 			{
 			if(inst->mesh)
 				{
 				...
 				}
+			// only for RC3 features
+			if(RCisV3(features))
+				{
+				TRCInstanceV300 *rci3 = static_cast<TRCInstanceV300 *>(rci);
+				...
+				}
+			// next instance
+			rci = RCGetNextInstance(rci, features);
 			}
 		}
 
 	The number of instances will be stored in "numInstances". If the function fails for some reason, or there is not renderable geometry, it will return NULL. 
+	Always use RCGetNextInstance to get pointer to next item. This function provides compatibility with RailClone 2.
 	
 	Each "TRCInstance" stores full information about the instance, incluing the source mesh, transformation matrix and more. See the 
 	class definition below in this header file. Note: In some cases TRCInstance->mesh would be NULL, you must handle this case and skip it.
@@ -90,6 +109,8 @@ At the rendering loop, repeat for each RailClone object:
 
 // Forest Class_ID
 #define TRAIL_CLASS_ID	Class_ID(0x39712def, 0x10a72959)
+// API Version
+#define TRAILCLONE_API_VERSION			300
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 // RailClone Interface
@@ -98,9 +119,22 @@ At the rendering loop, repeat for each RailClone object:
 #define GetRCInterface(obj) ((IRCInterface*) obj->GetInterface(RC_MIX_INTERFACE))
 
 // function IDs
-enum { rc_segments_updateall, rc_getmeshes, rc_clearmeshes, rc_getinstances, rc_clearinstances, rc_renderbegin, rc_renderend, rc_getstyledesc, rc_setstyledesc, rc_resetcreatedversion };
+enum { rc_segments_updateall, rc_getmeshes, rc_clearmeshes, rc_getinstances, rc_clearinstances, rc_renderbegin, rc_renderend, rc_getstyledesc, rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion };
 
-class TRCInstance 
+
+class TRCEngineFeatures
+	{
+	public:
+	int renderAPIversion;			// this value is initialized in constructor with TRAILCLONE_API_VERSION. Used by RC to identify API version used by renderer
+	int rcAPIversion;					// after calling to IRCRegisterEngine, this value returns API version from the RailClone side. Use it from renderer to check API compatibility.
+	int reserved[4];				
+
+	void init() { renderAPIversion = TRAILCLONE_API_VERSION; rcAPIversion = reserved[3] = reserved[2] = reserved[1] = reserved[0] = 0; }
+	TRCEngineFeatures() { init(); }
+	};
+
+
+class TRCInstance
 	{
 	public:
 	Matrix3 tm;						// full transformation for the instance
@@ -108,7 +142,18 @@ class TRCInstance
 	};
 
 
-class IRCInterface : public FPMixinInterface {
+class TRCInstanceV300: public TRCInstance
+	{
+	public:
+	MaxSDK::Array<int> const *matid;	// pointer to an array with subtitutions of Material ID for this instance
+																		// it includes a pair number of integers: first value is the original ID, and next one is new material ID
+																		// Note: pointer may be NULL if there are not substitutions
+	int reserved[5];
+	};
+
+
+class IRCInterface : public FPMixinInterface 
+	{
 	BEGIN_FUNCTION_MAP
 		VFN_2(rc_segments_updateall, IRCSegmentsUpdateAll, TYPE_INT, TYPE_INT);
 		FN_1(rc_getmeshes, TYPE_INTPTR, IRCGetMeshes, TYPE_INT);
@@ -120,6 +165,7 @@ class IRCInterface : public FPMixinInterface {
 		FN_0(rc_getstyledesc, TYPE_TSTR_BR, IRCGetStyleDesc);
 		VFN_1(rc_setstyledesc, IRCSetStyleDesc, TYPE_TSTR_BR);
 		VFN_0(rc_resetcreatedversion, IRCResetCreatedVersion);
+		VFN_1(rc_setcreatedversion, IRCSetCreatedVersion, TYPE_INT);
 	END_FUNCTION_MAP
 
 	virtual void IRCSegmentsUpdateAll(int n1, int n2) = 0;
@@ -132,9 +178,30 @@ class IRCInterface : public FPMixinInterface {
 	virtual TSTR &IRCGetStyleDesc() = 0;
 	virtual void IRCSetStyleDesc(TSTR &desc) = 0;
 	virtual void IRCResetCreatedVersion() = 0;
+	virtual void IRCSetCreatedVersion(int ver) = 0;
 
 	FPInterfaceDesc* GetDesc();	
-};
+	};
+
+// utility functions to keep backward compatibility with RC2
+
+inline bool RCisV3(TRCEngineFeatures &features) { return features.rcAPIversion >= 300; }
+
+inline TRCInstance *RCGetInstances(IRCInterface *irc, TRCEngineFeatures &features, int &numInstances)
+	{
+	return RCisV3(features) ? (TRCInstanceV300 *) irc->IRCGetInstances(numInstances) : (TRCInstance *) irc->IRCGetInstances(numInstances);
+	}
+
+
+inline TRCInstance *RCGetNextInstance(TRCInstance *ri, TRCEngineFeatures &features)
+	{
+	if(RCisV3(features))
+		{
+		TRCInstanceV300 *ri3 = (TRCInstanceV300 *) ri;
+		return ri3+1;
+		}
+	return ri+1;
+	}
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -144,14 +211,17 @@ class IRCInterface : public FPMixinInterface {
 
 #define GetRCStaticInterface()	(IRCStaticInterface *) ::GetInterface(GEOMOBJECT_CLASS_ID, TRAIL_CLASS_ID, RC_STATIC_INTERFACE)
 
-enum { rc_registerengine };
+enum { rc_registerengine, rc_version, rc_setenginefeatures };
 
-class IRCStaticInterface : public FPStaticInterface {
+class IRCStaticInterface : public FPStaticInterface 
+	{
 	public:
 	virtual void IRCRegisterEngine() = 0;
+	virtual int IRCVersion() = 0;
+	virtual void IRCSetEngineFeatures(INT_PTR pdata) = 0;
 
 	FPInterfaceDesc* GetDesc();	
-};
+	};
 
 
 
