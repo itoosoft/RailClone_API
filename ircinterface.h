@@ -5,6 +5,7 @@ CREATED BY: CQG
 HISTORY:	03/09/2013 - First Version
 					03/01/2017 - Added IRCSetEngineFeatures, TRCInstance improved to V300
 					31/05/2017 - Fixed compatibility issues with RailClone 2 (see changes on step 5).
+					15/01/2019 - Added compatibility with RailClone 4, TRInstance updated to V400.
 
 	Copyright (c) iToo Software. All Rights Reserved.
 
@@ -70,6 +71,12 @@ At the rendering loop, repeat for each RailClone object:
 				{
 				...
 				}
+			// only for RC4 features
+			if(RCisV4(features))
+				{
+				TRCInstanceV400 *rci4 = static_cast<TRCInstanceV400 *>(rci);
+				...
+				}
 			// only for RC3 features
 			if(RCisV3(features))
 				{
@@ -110,7 +117,7 @@ At the rendering loop, repeat for each RailClone object:
 // Forest Class_ID
 #define TRAIL_CLASS_ID	Class_ID(0x39712def, 0x10a72959)
 // API Version
-#define TRAILCLONE_API_VERSION			300
+#define TRAILCLONE_API_VERSION			400
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 // RailClone Interface
@@ -119,7 +126,8 @@ At the rendering loop, repeat for each RailClone object:
 #define GetRCInterface(obj) ((IRCInterface*) obj->GetInterface(RC_MIX_INTERFACE))
 
 // function IDs
-enum { rc_segments_updateall, rc_getmeshes, rc_clearmeshes, rc_getinstances, rc_clearinstances, rc_renderbegin, rc_renderend, rc_getstyledesc, rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion };
+enum { rc_segments_updateall, rc_getmeshes, rc_clearmeshes, rc_getinstances, rc_clearinstances, rc_renderbegin, rc_renderend, rc_getstyledesc, 
+	rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion, rc_upgradefromversion, rc_setnodescache };
 
 
 class TRCEngineFeatures
@@ -152,6 +160,16 @@ class TRCInstanceV300: public TRCInstance
 	};
 
 
+class TRCInstanceV400: public TRCInstanceV300
+	{
+	public:
+	Mtl *mtl;															// Material by Segment, only when "Style->Use Segment Material" is on. If not, is NULL
+	float tint_rf, tint_rc1, tint_rc2;		// Tint values used in RailClone Color
+	Point3 surf_uvw;											// Mapping coordinates for RailClone Color, when using "Get Color from Map"->"As texture on Surface"
+	int reserved[10];
+	};
+
+
 class IRCInterface : public FPMixinInterface 
 	{
 	BEGIN_FUNCTION_MAP
@@ -166,6 +184,8 @@ class IRCInterface : public FPMixinInterface
 		VFN_1(rc_setstyledesc, IRCSetStyleDesc, TYPE_TSTR_BR);
 		VFN_0(rc_resetcreatedversion, IRCResetCreatedVersion);
 		VFN_1(rc_setcreatedversion, IRCSetCreatedVersion, TYPE_INT);
+		VFN_1(rc_upgradefromversion, IRCUpgradeFromVersion, TYPE_INT);
+		VFN_1(rc_setnodescache, IRCSetNodesCache, TYPE_INT);
 	END_FUNCTION_MAP
 
 	virtual void IRCSegmentsUpdateAll(int n1, int n2) = 0;
@@ -179,22 +199,34 @@ class IRCInterface : public FPMixinInterface
 	virtual void IRCSetStyleDesc(TSTR &desc) = 0;
 	virtual void IRCResetCreatedVersion() = 0;
 	virtual void IRCSetCreatedVersion(int ver) = 0;
+	virtual void IRCUpgradeFromVersion(int ver) = 0;
+	virtual void IRCSetNodesCache(int ver) = 0;
 
 	FPInterfaceDesc* GetDesc();	
 	};
 
-// utility functions to keep backward compatibility with RC2
+// utility functions to keep backward compatibility with previous versions
 
 inline bool RCisV3(TRCEngineFeatures &features) { return features.rcAPIversion >= 300; }
+inline bool RCisV4(TRCEngineFeatures &features) { return features.rcAPIversion >= 400; }
 
 inline TRCInstance *RCGetInstances(IRCInterface *irc, TRCEngineFeatures &features, int &numInstances)
 	{
-	return RCisV3(features) ? (TRCInstanceV300 *) irc->IRCGetInstances(numInstances) : (TRCInstance *) irc->IRCGetInstances(numInstances);
+	if(RCisV4(features))
+		return (TRCInstanceV400 *) irc->IRCGetInstances(numInstances);
+	if(RCisV3(features)) 
+		return (TRCInstanceV300 *) irc->IRCGetInstances(numInstances);
+	return (TRCInstance *) irc->IRCGetInstances(numInstances);
 	}
 
 
 inline TRCInstance *RCGetNextInstance(TRCInstance *ri, TRCEngineFeatures &features)
 	{
+	if(RCisV4(features))
+		{
+		TRCInstanceV400 *ri4 = (TRCInstanceV400 *) ri;
+		return ri4+1;
+		}
 	if(RCisV3(features))
 		{
 		TRCInstanceV300 *ri3 = (TRCInstanceV300 *) ri;
