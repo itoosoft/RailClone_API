@@ -80,7 +80,7 @@ At the rendering loop, repeat for each RailClone object:
 				TRCInstanceV400 *rci4 = static_cast<TRCInstanceV400 *>(rci);
 				...
 				// check for non-geom objects
-				if(rci4 && RCisV5(features) && rci->obj)
+				if(rci4 && RCisV5(features) && rci->node)
 					{
 					... 
 					}
@@ -102,7 +102,7 @@ At the rendering loop, repeat for each RailClone object:
 	Each "TRCInstance" stores full information about the instance, incluing the source mesh, transformation matrix and more. See the 
 	class definition below in this header file. Note: In some cases TRCInstance->mesh would be NULL, you must handle this case and skip it.
 
-	RailClone 5 supports non-geometric objects. In this case, "TRInstance::mesh" is null, but "TRCInstanceV400::obj" points to the source object.
+	RailClone 5 supports non-geometric objects. In this case, "TRInstance::mesh" is null, but "TRCInstanceV400::node" points to the source INode.
 	Note: if your render engine is going to support this feature, you must set "features.supportNoGeomObjects = true" at step 1.
 
 	- The transformation matrix is on local coordinates of the RailClone object. Just multiply it by the INode TM to get the world coordinates of the instance.
@@ -185,7 +185,7 @@ class TRCInstanceV400: public TRCInstanceV300
 	Mtl *mtl;															// Material by Segment, only when "Style->Use Segment Material" is on. If not, is NULL
 	float tint_rf, tint_rc1, tint_rc2;		// Tint values used in RailClone Color
 	Point3 surf_uvw;											// Mapping coordinates for RailClone Color, when using "Get Color from Map"->"As texture on Surface"
-	Object *obj;													// Source object for non-geometric segments
+	INode *node;													// Source INode for non-geometric segments
 	int reserved4[8];
 	};
 
