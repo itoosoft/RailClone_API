@@ -6,6 +6,8 @@ HISTORY:	03/09/2013 - First Version
 					03/01/2017 - Added IRCSetEngineFeatures, TRCInstance improved to V300
 					31/05/2017 - Fixed compatibility issues with RailClone 2 (see changes on step 5).
 					15/01/2019 - Added compatibility with RailClone 4, TRInstance updated to V400.
+					13/04/2020 - Renderer can disable Material ID baking, setting TRCEngineFeatures::disableMaterialBaking to true.
+					01/06/2021 - Added support for non-geometric objects. See step 5 for details.
 
 	Copyright (c) iToo Software. All Rights Reserved.
 
@@ -19,6 +21,7 @@ The following interface can be used by third party render engines to instantiate
 		IRCStaticInterface *isrc = GetRCStaticInterface();
 		isrc->IRCRegisterEngine();
 		TRCEngineFeatures features;
+		features.supportNoGeomObjects = true; // set false if you render engine doesn't instantiate non-geometric objects
 		if(isrc->functions.Count() > 2)		// safety check to avoid crash if RailClone plugin is not V3
 			isrc->IRCSetEngineFeatures(&features);
 
@@ -55,7 +58,7 @@ At the rendering loop, repeat for each RailClone object:
 		}
 
 	In the above loop, you must prepare each of these meshes for rendering. Usually converting them to the native geometry format of your engine.
-	The number of meshes will be stored in "numMeshes". If the function fails for some reason, or there is not renderable geometry, it will return NULL. 
+	Please note "IRCGetMeshes" may return NULL, if there are not geometric objects. You must check this condition. The number of meshes is stored in "numMeshes". 
 	The meshes are zero aligned and not transformed, since the transformation matrix depends of each instance (see next step).
 
 5) Generate the array of instances (instances of the meshes generated in step 5), and get a pointer to it:
@@ -94,9 +97,11 @@ At the rendering loop, repeat for each RailClone object:
 	Each "TRCInstance" stores full information about the instance, incluing the source mesh, transformation matrix and more. See the 
 	class definition below in this header file. Note: In some cases TRCInstance->mesh would be NULL, you must handle this case and skip it.
 
+	RailClone 5 supports non-geometric objects. In this case, "TRInstance::mesh" is null, but "TRCInstanceV400::obj" points to the source object.
+	Note: if your render engine is going to support this feature, you must set "features.supportNoGeomObjects = true" at step 1.
+
 	- The transformation matrix is on local coordinates of the RailClone object. Just multiply it by the INode TM to get the world coordinates of the instance.
 	- RailClone doesn't apply separated materials to the instances, use the same material assigned to the RailClone object.
-	- The first item stores the geometry of the RailClone object that is not instantiable. This item is unique, and uses the first mesh returned by irc->IRCGetMeshes.
 	- In case that Display->Render->Use Geometry Shader is off, there will be an unique item holding the geometry of the full RC object.
 
 6) Clear the arrays:
@@ -109,15 +114,14 @@ At the rendering loop, repeat for each RailClone object:
 
 **********************************************************************/
 
-#ifndef __IRCINTERFACE__H
-#define __IRCINTERFACE__H
+#pragma once
 
 #include "ifnpub.h"
 
 // Forest Class_ID
 #define TRAIL_CLASS_ID	Class_ID(0x39712def, 0x10a72959)
 // API Version
-#define TRAILCLONE_API_VERSION			400
+#define TRAILCLONE_API_VERSION			500
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 // RailClone Interface
@@ -127,7 +131,7 @@ At the rendering loop, repeat for each RailClone object:
 
 // function IDs
 enum { rc_segments_updateall, rc_getmeshes, rc_clearmeshes, rc_getinstances, rc_clearinstances, rc_renderbegin, rc_renderend, rc_getstyledesc, 
-	rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion, rc_upgradefromversion, rc_setnodescache };
+	rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion, rc_upgradefromversion, rc_setnodescache, rc_setproxymode };
 
 
 class TRCEngineFeatures
@@ -135,9 +139,19 @@ class TRCEngineFeatures
 	public:
 	int renderAPIversion;			// this value is initialized in constructor with TRAILCLONE_API_VERSION. Used by RC to identify API version used by renderer
 	int rcAPIversion;					// after calling to IRCRegisterEngine, this value returns API version from the RailClone side. Use it from renderer to check API compatibility.
-	int reserved[4];				
+	bool disableMaterialBaking;	// set it to true to disable Material ID baking feature. In this case, renderer must handle material ID changes (defined at TRCInstanceV300::matid)
+	bool supportNoGeomObjects;		// set it to true if your renderer instantiates non-geometric objects, defined at TRCInstanceV400::obj
+	bool reserved[14];
 
-	void init() { renderAPIversion = TRAILCLONE_API_VERSION; rcAPIversion = reserved[3] = reserved[2] = reserved[1] = reserved[0] = 0; }
+	void init()
+		{
+		renderAPIversion = TRAILCLONE_API_VERSION;
+		rcAPIversion = 0;
+		disableMaterialBaking = false;
+		supportNoGeomObjects = false;
+		for(unsigned int i = 0; i < _countof(reserved); i++)
+			reserved[i] = false;
+		}
 	TRCEngineFeatures() { init(); }
 	};
 
@@ -156,7 +170,7 @@ class TRCInstanceV300: public TRCInstance
 	MaxSDK::Array<int> const *matid;	// pointer to an array with subtitutions of Material ID for this instance
 																		// it includes a pair number of integers: first value is the original ID, and next one is new material ID
 																		// Note: pointer may be NULL if there are not substitutions
-	int reserved[5];
+	int reserved3[5];
 	};
 
 
@@ -166,26 +180,28 @@ class TRCInstanceV400: public TRCInstanceV300
 	Mtl *mtl;															// Material by Segment, only when "Style->Use Segment Material" is on. If not, is NULL
 	float tint_rf, tint_rc1, tint_rc2;		// Tint values used in RailClone Color
 	Point3 surf_uvw;											// Mapping coordinates for RailClone Color, when using "Get Color from Map"->"As texture on Surface"
-	int reserved[10];
+	Object *obj;													// Source object for non-geometric segments
+	int reserved4[8];
 	};
 
 
 class IRCInterface : public FPMixinInterface 
 	{
 	BEGIN_FUNCTION_MAP
-		VFN_2(rc_segments_updateall, IRCSegmentsUpdateAll, TYPE_INT, TYPE_INT);
-		FN_1(rc_getmeshes, TYPE_INTPTR, IRCGetMeshes, TYPE_INT);
-		VFN_0(rc_clearmeshes, IRCClearMeshes);
-		FN_1(rc_getinstances, TYPE_INTPTR, IRCGetInstances, TYPE_INT);
-		VFN_0(rc_clearinstances, IRCClearInstances);
-		VFN_1(rc_renderbegin, IRCRenderBegin, TYPE_TIMEVALUE);
-		VFN_1(rc_renderend, IRCRenderEnd, TYPE_TIMEVALUE);
-		FN_0(rc_getstyledesc, TYPE_TSTR_BR, IRCGetStyleDesc);
-		VFN_1(rc_setstyledesc, IRCSetStyleDesc, TYPE_TSTR_BR);
-		VFN_0(rc_resetcreatedversion, IRCResetCreatedVersion);
-		VFN_1(rc_setcreatedversion, IRCSetCreatedVersion, TYPE_INT);
-		VFN_1(rc_upgradefromversion, IRCUpgradeFromVersion, TYPE_INT);
-		VFN_1(rc_setnodescache, IRCSetNodesCache, TYPE_INT);
+		VFN_2(rc_segments_updateall, IRCSegmentsUpdateAll, TYPE_INT, TYPE_INT)
+		FN_1(rc_getmeshes, TYPE_INTPTR, IRCGetMeshes, TYPE_INT)
+		VFN_0(rc_clearmeshes, IRCClearMeshes)
+		FN_1(rc_getinstances, TYPE_INTPTR, IRCGetInstances, TYPE_INT)
+		VFN_0(rc_clearinstances, IRCClearInstances)
+		VFN_1(rc_renderbegin, IRCRenderBegin, TYPE_TIMEVALUE)
+		VFN_1(rc_renderend, IRCRenderEnd, TYPE_TIMEVALUE)
+		FN_0(rc_getstyledesc, TYPE_TSTR_BR, IRCGetStyleDesc)
+		VFN_1(rc_setstyledesc, IRCSetStyleDesc, TYPE_TSTR_BR)
+		VFN_0(rc_resetcreatedversion, IRCResetCreatedVersion)
+		VFN_1(rc_setcreatedversion, IRCSetCreatedVersion, TYPE_INT)
+		VFN_1(rc_upgradefromversion, IRCUpgradeFromVersion, TYPE_INT)
+		VFN_1(rc_setnodescache, IRCSetNodesCache, TYPE_INT)
+		FN_2(rc_setproxymode, TYPE_TSTR_BR, IRCSetProxyMode, TYPE_INT, TYPE_TSTR_BR)
 	END_FUNCTION_MAP
 
 	virtual void IRCSegmentsUpdateAll(int n1, int n2) = 0;
@@ -201,6 +217,7 @@ class IRCInterface : public FPMixinInterface
 	virtual void IRCSetCreatedVersion(int ver) = 0;
 	virtual void IRCUpgradeFromVersion(int ver) = 0;
 	virtual void IRCSetNodesCache(int ver) = 0;
+	virtual TSTR &IRCSetProxyMode(int mode, TSTR &proxyFile) = 0;
 
 	FPInterfaceDesc* GetDesc();	
 	};
@@ -255,6 +272,3 @@ class IRCStaticInterface : public FPStaticInterface
 	FPInterfaceDesc* GetDesc();	
 	};
 
-
-
-#endif
