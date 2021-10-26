@@ -74,11 +74,16 @@ At the rendering loop, repeat for each RailClone object:
 				{
 				...
 				}
-			// only for RC4 features
+			// only for RC4/RC5 features
 			if(RCisV4(features))
 				{
 				TRCInstanceV400 *rci4 = static_cast<TRCInstanceV400 *>(rci);
 				...
+				// check for non-geom objects
+				if(rci4 && RCisV5(features) && rci->obj)
+					{
+					... 
+					}
 				}
 			// only for RC3 features
 			if(RCisV3(features))
@@ -219,15 +224,16 @@ class IRCInterface : public FPMixinInterface
 	virtual void IRCSetNodesCache(int ver) = 0;
 	virtual TSTR &IRCSetProxyMode(int mode, TSTR &proxyFile) = 0;
 
-	FPInterfaceDesc* GetDesc();	
+	FPInterfaceDesc* GetDesc() override;	
 	};
 
 // utility functions to keep backward compatibility with previous versions
 
-inline bool RCisV3(TRCEngineFeatures &features) { return features.rcAPIversion >= 300; }
-inline bool RCisV4(TRCEngineFeatures &features) { return features.rcAPIversion >= 400; }
+inline bool RCisV3(TRCEngineFeatures const &features) { return features.rcAPIversion >= 300; }
+inline bool RCisV4(TRCEngineFeatures const &features) { return features.rcAPIversion >= 400; }
+inline bool RCisV5(TRCEngineFeatures const &features) { return features.rcAPIversion >= 500; }
 
-inline TRCInstance *RCGetInstances(IRCInterface *irc, TRCEngineFeatures &features, int &numInstances)
+inline TRCInstance *RCGetInstances(IRCInterface *irc, TRCEngineFeatures const &features, int &numInstances)
 	{
 	if(RCisV4(features))
 		return (TRCInstanceV400 *) irc->IRCGetInstances(numInstances);
@@ -237,16 +243,16 @@ inline TRCInstance *RCGetInstances(IRCInterface *irc, TRCEngineFeatures &feature
 	}
 
 
-inline TRCInstance *RCGetNextInstance(TRCInstance *ri, TRCEngineFeatures &features)
+inline TRCInstance *RCGetNextInstance(TRCInstance *ri, TRCEngineFeatures const &features)
 	{
 	if(RCisV4(features))
 		{
-		TRCInstanceV400 *ri4 = (TRCInstanceV400 *) ri;
+		auto *ri4 = (TRCInstanceV400 *) ri;
 		return ri4+1;
 		}
 	if(RCisV3(features))
 		{
-		TRCInstanceV300 *ri3 = (TRCInstanceV300 *) ri;
+		auto *ri3 = (TRCInstanceV300 *) ri;
 		return ri3+1;
 		}
 	return ri+1;
