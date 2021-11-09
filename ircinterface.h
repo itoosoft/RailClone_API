@@ -127,7 +127,7 @@ At the rendering loop, repeat for each RailClone object:
 #include "ifnpub.h"
 
 // RailClone Class_ID
-#define TRAIL_CLASS_ID				Class_ID(0x39712def, 0x10a72959)
+#define TRAIL_CLASS_ID	Class_ID(0x39712def, 0x10a72959)
 #define TRAIL_PROXY_CLASS_ID	Class_ID(0x38915b3e, 0x26a9337f)
 
 // API Version
