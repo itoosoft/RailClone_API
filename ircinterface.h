@@ -15,6 +15,9 @@ HISTORY:	03/09/2013 - First Version
 
 The following interface can be used by third party render engines to instantiate the RailClone items, in the following way:
 
+First, you should check for RailClone objects using two ClassIDs: TRAIL_CLASS_ID or TRAIL_PROXY_CLASS_ID.
+One is used for the RC objects itself, and other for RailClone Proxies. But both objects use the same interface.
+
 1) Using the static RailClone interface, Register the current render engine as supported for instancing.
    Strictly, this funcion only need to be inkoked one time by Max session, but it's ok if you call it more times:
 	
@@ -123,8 +126,10 @@ At the rendering loop, repeat for each RailClone object:
 
 #include "ifnpub.h"
 
-// Forest Class_ID
-#define TRAIL_CLASS_ID	Class_ID(0x39712def, 0x10a72959)
+// RailClone Class_ID
+#define TRAIL_CLASS_ID				Class_ID(0x39712def, 0x10a72959)
+#define TRAIL_PROXY_CLASS_ID	Class_ID(0x38915b3e, 0x26a9337f)
+
 // API Version
 #define TRAILCLONE_API_VERSION			500
 
