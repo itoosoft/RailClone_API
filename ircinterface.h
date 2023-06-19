@@ -141,7 +141,7 @@ At the rendering loop, repeat for each RailClone object:
 
 // function IDs
 enum { rc_segments_updateall, rc_getmeshes, rc_clearmeshes, rc_getinstances, rc_clearinstances, rc_renderbegin, rc_renderend, rc_getstyledesc, 
-	rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion, rc_upgradefromversion, rc_setnodescache, rc_setproxymode };
+	rc_setstyledesc, rc_resetcreatedversion, rc_setcreatedversion, rc_upgradefromversion, rc_setnodescache, rc_setproxymode, rc_loadlibraryitembypath };
 
 
 class TRCEngineFeatures
@@ -212,6 +212,7 @@ class IRCInterface : public FPMixinInterface
 		VFN_1(rc_upgradefromversion, IRCUpgradeFromVersion, TYPE_INT)
 		VFN_1(rc_setnodescache, IRCSetNodesCache, TYPE_INT)
 		FN_2(rc_setproxymode, TYPE_TSTR_BR, IRCSetProxyMode, TYPE_INT, TYPE_TSTR_BR)
+		FN_1(rc_loadlibraryitembypath, TYPE_INT, IRCLoadLibraryItemByPath, TYPE_TSTR_BR)
 	END_FUNCTION_MAP
 
 	virtual void IRCSegmentsUpdateAll(int n1, int n2) = 0;
@@ -228,6 +229,7 @@ class IRCInterface : public FPMixinInterface
 	virtual void IRCUpgradeFromVersion(int ver) = 0;
 	virtual void IRCSetNodesCache(int ver) = 0;
 	virtual TSTR &IRCSetProxyMode(int mode, TSTR &proxyFile) = 0;
+	virtual int IRCLoadLibraryItemByPath(TSTR &itemPath) = 0;
 
 	FPInterfaceDesc* GetDesc() override;	
 	};
@@ -271,7 +273,7 @@ inline TRCInstance *RCGetNextInstance(TRCInstance *ri, TRCEngineFeatures const &
 
 #define GetRCStaticInterface()	(IRCStaticInterface *) ::GetInterface(GEOMOBJECT_CLASS_ID, TRAIL_CLASS_ID, RC_STATIC_INTERFACE)
 
-enum { rc_registerengine, rc_version, rc_setenginefeatures };
+enum { rc_registerengine, rc_version, rc_setenginefeatures, rc_instantiate, rc_instantiate_delete, rc_instantiate_enable, rc_export_data };
 
 class IRCStaticInterface : public FPStaticInterface 
 	{
@@ -279,7 +281,12 @@ class IRCStaticInterface : public FPStaticInterface
 	virtual void IRCRegisterEngine() = 0;
 	virtual int IRCVersion() = 0;
 	virtual void IRCSetEngineFeatures(INT_PTR pdata) = 0;
+	virtual	void IRCInstantiate(int mode, TSTR &layer, BOOL autoDelete, BOOL separatedMeshes, BOOL forceInstances, BOOL disableAtEnd) = 0;
+	virtual void IRCInstantiateDelete() = 0;
+	virtual void IRCInstantiateEnable() = 0;
+	virtual int IRCExportData(TSTR &filename, TSTR &fieldlist, int format) = 0;
 
 	FPInterfaceDesc* GetDesc();	
 	};
+
 
